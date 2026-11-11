@@ -93,16 +93,19 @@ void sincronizarHora() {
 
 // le avisa a la pagina como estan los led
 void publicarLeds() {
-  String estado = "{\"verde\":" + String(ledVerde ? "true" : "false") +
-                  ",\"rojo\":" + String(ledRojo ? "true" : "false") + "}";
-  clienteMqtt.publish(TOPIC_LED_ESTADO, estado.c_str(), true);
+  JsonDocument estado;
+  estado["verde"] = ledVerde;
+  estado["rojo"] = ledRojo;
+  String texto;
+  serializeJson(estado, texto);
+  clienteMqtt.publish(TOPIC_LED_ESTADO, texto.c_str(), true);
 }
 
 void cambiarLeds(bool verde, bool rojo) {
   ledVerde = verde;
   ledRojo = rojo;
-  digitalWrite(PIN_LED_VERDE, ledVerde ? HIGH : LOW);
-  digitalWrite(PIN_LED_ROJO, ledRojo ? HIGH : LOW);
+  digitalWrite(PIN_LED_VERDE, ledVerde);
+  digitalWrite(PIN_LED_ROJO, ledRojo);
   publicarLeds();
 }
 
