@@ -183,7 +183,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
 
-    const { aTiempo, tardes, ausentes } = this.resumenDia(dia);
+    const resumen = this.resumenDia(dia);
+    const aTiempo = resumen.aTiempo;
+    const tardes = resumen.tardes;
+    const ausentes = resumen.ausentes;
     for (const nombre of ausentes) {
       dia.registros.push({ nombre, hora: '', estado: 'AUSENTE' });
     }
@@ -237,9 +240,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
 
     const asistencia = leerJson('asistencia.json', {});
-    const { tardes, ausentes } = this.resumenDia(this.leerDia(asistencia, hoy));
+    const resumen = this.resumenDia(this.leerDia(asistencia, hoy));
     const diaAseo = siguienteDiaClase();
-    const sorteo = { fecha: formatoFecha(diaAseo), sorteadoEl: hoy, asignados: sortearAseo(tardes, ausentes) };
+    const sorteo = { fecha: formatoFecha(diaAseo), sorteadoEl: hoy, asignados: sortearAseo(resumen.tardes, resumen.ausentes) };
     aseo.push(sorteo);
     guardarJson('aseo.json', aseo);
 
@@ -261,8 +264,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   // los que llegaron mas los que faltan, aunque no se haya cerrado
   registrosParaExcel(dia: any) {
     const llegaron = dia.registros.filter((r: Registro) => r.estado != 'AUSENTE');
-    const { ausentes } = this.resumenDia(dia);
-    for (const nombre of ausentes) {
+    const resumen = this.resumenDia(dia);
+    for (const nombre of resumen.ausentes) {
       llegaron.push({ nombre, hora: '', estado: 'AUSENTE' });
     }
     return llegaron;
@@ -271,22 +274,22 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   async crearExcelDeHoy() {
     const asistencia = leerJson('asistencia.json', {});
     const dia = this.leerDia(asistencia, fechaHoy());
-    return crearExcel(fechaHoy(), this.registrosParaExcel(dia));
+    return crearExcel(fechaHoy(), this.agregarExcusas(fechaHoy(), this.registrosParaExcel(dia)));
   }
 
   estadoDeHoy() {
     const hoy = fechaHoy();
     const asistencia = leerJson('asistencia.json', {});
     const dia = this.leerDia(asistencia, hoy);
-    const { aTiempo, tardes, ausentes } = this.resumenDia(dia);
+    const resumen = this.resumenDia(dia);
     const aseo = leerJson('aseo.json', []);
     return {
       fecha: hoy,
       cerrada: dia.cerrada,
       llegadas: dia.registros.filter((r: Registro) => r.estado != 'AUSENTE'),
-      aTiempo: aTiempo.length,
-      tardes: tardes.length,
-      ausentes,
+      aTiempo: resumen.aTiempo.length,
+      tardes: resumen.tardes.length,
+      ausentes: resumen.ausentes,
       leds: this.leds,
       sorteo: aseo.find((a) => a.sorteadoEl == hoy) || null,
       excusas: leerJson('excusas.json', []).filter((e) => e.estado == 'PENDIENTE'),
@@ -294,7 +297,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   cambiarLed(color: string, encender: boolean) {
-    const accion = encender ? 'ENCENDER' : 'APAGAR';
+    let accion = 'APAGAR';
+    if (encender) {
+      accion = 'ENCENDER';
+    }
     this.clienteMqtt.publish(TOPIC_LED, `${accion}_${color.toUpperCase()}`);
   }
 
@@ -402,17 +408,19 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   textoExcusa(excusa: any) {
-    return (
-      `Excusa de ${excusa.nombre} (${excusa.fecha})
+    let texto = `Excusa de ${excusa.nombre} (${excusa.fecha})
 
-` +
-      `"${excusa.texto}"
+`;
+    texto += `"${excusa.texto}"
 
-` +
-      `Resumen IA: ${excusa.resumen}
-` +
-      `Sugerencia IA: ${excusa.sugerencia}` + (excusa.razon ? ` - ${excusa.razon}` : '')
-    );
+`;
+    texto += `Resumen IA: ${excusa.resumen}
+`;
+    texto += `Sugerencia IA: ${excusa.sugerencia}`;
+    if (excusa.razon) {
+      texto += ` - ${excusa.razon}`;
+    }
+    return texto;
   }
 
   async botonExcusa(boton: TelegramBot.CallbackQuery) {
@@ -463,8 +471,27 @@ Decision: ${decision}`, {
     return nombres.join(', ');
   }
 
+  // a los ausentes se les pone si mandaron excusa y que dijo el instructor
+  agregarExcusas(fecha: string, registros: Registro[]) {
+    const excusas = leerJson('excusas.json', []);
+    for (const registro of registros) {
+      if (registro.estado != 'AUSENTE') {
+        continue;
+      }
+      const excusa = excusas.find((e) => e.nombre == registro.nombre && e.fecha == fecha);
+      registro.excusa = 'Sin excusa';
+      registro.motivo = '';
+      if (excusa && excusa.estado == 'SIN_RESPUESTA') registro.excusa = 'No ha respondido';
+      if (excusa && excusa.estado == 'PENDIENTE') registro.excusa = 'Por revisar';
+      if (excusa && excusa.estado == 'ACEPTADA') registro.excusa = 'Aceptada';
+      if (excusa && excusa.estado == 'RECHAZADA') registro.excusa = 'Rechazada';
+      if (excusa && excusa.texto) registro.motivo = excusa.texto;
+    }
+    return registros;
+  }
+
   async enviarExcel(chatId: number, fecha: string, registros: Registro[]) {
-    const ruta = await crearExcel(fecha, registros);
+    const ruta = await crearExcel(fecha, this.agregarExcusas(fecha, registros));
     try {
       await this.bot.sendDocument(chatId, ruta, {}, {
         filename: path.basename(ruta),

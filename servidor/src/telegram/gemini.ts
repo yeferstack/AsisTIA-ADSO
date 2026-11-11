@@ -7,7 +7,7 @@ export interface Analisis {
   razon: string;
 }
 
-export async function analizarExcusa(nombre: string, texto: string): Promise<Analisis> {
+export async function analizarExcusa(nombre: string, texto: string) {
   const instruccion =
     'Eres el asistente de un instructor del SENA. Un aprendiz falto a clase y mando esta excusa.\n' +
     'Haz un resumen corto (maximo 20 palabras) y sugiere si la excusa es VALIDA o NO VALIDA.\n' +
@@ -34,7 +34,8 @@ export async function analizarExcusa(nombre: string, texto: string): Promise<Ana
       const datos = await respuesta.json();
       if (respuesta.ok) {
         const textoGemini = datos.candidates[0].content.parts[0].text;
-        return JSON.parse(textoGemini);
+        const analisis: Analisis = JSON.parse(textoGemini);
+        return analisis;
       }
       console.log(`Error de Gemini (${modelo}):`, datos.error ? datos.error.message : respuesta.status);
     } catch (error) {

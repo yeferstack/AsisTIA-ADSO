@@ -25,7 +25,7 @@ body {
   min-height: 100vh;
 }
 
-/* ---------- cabecera ---------- */
+/* cabecera */
 header {
   display: flex;
   justify-content: space-between;
@@ -109,7 +109,7 @@ header p {
   100% { box-shadow: 0 0 0 10px rgba(93, 255, 74, 0); }
 }
 
-/* ---------- contenido ---------- */
+/* contenido */
 main {
   max-width: 1150px;
   margin: 0 auto;
@@ -194,7 +194,7 @@ main {
   font-weight: 600;
 }
 
-/* ---------- llegadas ---------- */
+/* llegadas */
 .lista-llegadas {
   max-height: 320px;
   overflow-y: auto;
@@ -269,7 +269,7 @@ main {
   text-transform: capitalize;
 }
 
-/* ---------- LED ---------- */
+/* LED */
 .leds {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -426,7 +426,7 @@ main {
 .encendido-verde .interruptor input:checked + .deslizador { background: var(--verde); }
 .encendido-rojo .interruptor input:checked + .deslizador { background: var(--rojo); }
 
-/* ---------- acciones ---------- */
+/* acciones */
 .acciones {
   display: flex;
   flex-direction: column;
@@ -468,7 +468,7 @@ main {
 .boton-telegram { background: linear-gradient(135deg, var(--azul), #13658c); }
 .boton-telegram:hover { box-shadow: 0 8px 20px rgba(34, 158, 217, 0.4); }
 
-/* ---------- sorteo ---------- */
+/* sorteo */
 .sorteo-vacio {
   color: var(--suave);
   text-align: center;
@@ -503,7 +503,7 @@ main {
   font-size: 13px;
 }
 
-/* ---------- excusas ---------- */
+/* excusas */
 .contador {
   background: var(--azul);
   font-size: 13px;
@@ -603,7 +603,7 @@ main {
 .boton-aceptar { background: var(--verde); }
 .boton-rechazar { background: var(--rojo); }
 
-/* ---------- aviso ---------- */
+/* aviso */
 .aviso {
   position: fixed;
   bottom: 25px;
@@ -624,7 +624,7 @@ main {
   opacity: 1;
 }
 
-/* ---------- celular ---------- */
+/* celular */
 @media (max-width: 800px) {
   header {
     padding: 14px 16px;

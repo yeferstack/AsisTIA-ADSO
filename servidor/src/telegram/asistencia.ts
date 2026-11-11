@@ -17,6 +17,8 @@ export interface Registro {
   nombre: string;
   hora: string;
   estado: string; // A_TIEMPO, TARDE, AUSENTE
+  excusa?: string;
+  motivo?: string;
 }
 
 export interface Asignado {
@@ -83,6 +85,8 @@ export async function crearExcel(fecha: string, registros: Registro[]) {
     { header: 'Nombre', key: 'nombre', width: 30 },
     { header: 'Hora', key: 'hora', width: 12 },
     { header: 'Estado', key: 'estado', width: 12 },
+    { header: 'Excusa', key: 'excusa', width: 18 },
+    { header: 'Motivo', key: 'motivo', width: 50 },
   ];
   hoja.addRows(registros);
   hoja.getRow(1).font = { bold: true };
