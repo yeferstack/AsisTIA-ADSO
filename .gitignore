@@ -1,0 +1,10 @@
+.env
+venv/
+node_modules/
+reconocimiento/fotos/
+reconocimiento/modelo.yml
+.pio/
+esp32/include/secretos.h
+servidor/datos/
+servidor/dist/
+__pycache__/
