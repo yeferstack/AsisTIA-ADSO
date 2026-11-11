@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AsistIA SENA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+  <header>
+    <div class="marca">
+      <div class="logo">A</div>
+      <div>
+        <h1>AsistIA <span>SENA</span></h1>
+        <p>Ficha 3237831 - Equipo XchanGo</p>
+      </div>
+    </div>
+    <div class="cabecera-derecha">
+      <div id="reloj" class="reloj">--:--:--</div>
+      <div id="enVivo" class="en-vivo"><span class="punto"></span> <span id="textoConexion">Conectando...</span></div>
+    </div>
+  </header>
+
+  <main>
+    <div class="barra-estado">
+      <span id="fecha">Cargando...</span>
+      <span id="estadoAsistencia" class="etiqueta">-</span>
+    </div>
+
+    <section class="resumen">
+      <div class="cuadro cuadro-verde">
+        <p>A tiempo</p>
+        <span id="totalATiempo">0</span>
+      </div>
+      <div class="cuadro cuadro-rojo">
+        <p>Tarde</p>
+        <span id="totalTarde">0</span>
+      </div>
+      <div class="cuadro cuadro-gris">
+        <p>Ausentes</p>
+        <span id="totalAusentes">0</span>
+      </div>
+    </section>
+
+    <div class="columnas">
+      <section class="tarjeta">
+        <h2>Llegadas de hoy</h2>
+        <div id="listaLlegadas" class="lista-llegadas"></div>
+        <p class="faltan">Faltan: <span id="listaAusentes">-</span></p>
+      </section>
+
+      <section class="tarjeta">
+        <h2>LED de la maqueta</h2>
+        <div class="leds">
+          <div id="cajaVerde" class="led-caja">
+            <div class="foco foco-verde">
+              <div class="cupula"></div>
+              <div class="base"></div>
+              <div class="patas"><span></span><span class="corta"></span></div>
+            </div>
+            <p class="nombre-led">Verde <small>pin 26</small></p>
+            <label class="interruptor">
+              <input type="checkbox" id="interruptorVerde" onchange="cambiarLed('verde', this.checked)">
+              <span class="deslizador"></span>
+            </label>
+            <p id="textoVerde" class="estado-led">Apagado</p>
+          </div>
+
+          <div id="cajaRojo" class="led-caja">
+            <div class="foco foco-rojo">
+              <div class="cupula"></div>
+              <div class="base"></div>
+              <div class="patas"><span></span><span class="corta"></span></div>
+            </div>
+            <p class="nombre-led">Rojo <small>pin 27</small></p>
+            <label class="interruptor">
+              <input type="checkbox" id="interruptorRojo" onchange="cambiarLed('rojo', this.checked)">
+              <span class="deslizador"></span>
+            </label>
+            <p id="textoRojo" class="estado-led">Apagado</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="columnas">
+      <section class="tarjeta">
+        <h2>Acciones</h2>
+        <div class="acciones">
+          <button class="boton boton-excel" onclick="generarExcel()">
+            <b>Generar Excel</b>
+            <small>Descarga la asistencia de hoy</small>
+          </button>
+          <button class="boton boton-sorteo" onclick="hacerSorteo()">
+            <b>Sortear aseo</b>
+            <small>Trapero, escoba y trapito</small>
+          </button>
+          <button class="boton boton-telegram" onclick="enviarTelegram()">
+            <b>Enviar Telegram</b>
+            <small>Ausentes e instructor</small>
+          </button>
+        </div>
+      </section>
+
+      <section class="tarjeta">
+        <h2>Sorteo del aseo</h2>
+        <div id="sorteo" class="sorteo-vacio">Todavia no se ha hecho el sorteo de hoy.</div>
+      </section>
+    </div>
+
+    <section class="tarjeta">
+      <h2>Excusas por revisar <span id="totalExcusas" class="contador">0</span></h2>
+      <div id="listaExcusas" class="lista-excusas"></div>
+    </section>
+  </main>
+
+  <div id="aviso" class="aviso"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -5,6 +5,7 @@ import * as cron from 'node-cron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { leerJson, guardarJson, leerNombres } from './archivos';
+import { analizarExcusa } from './gemini';
 import {
   HORA_APERTURA, HORA_INICIO, HORA_CIERRE, HORA_RECORDATORIO_ASEO, DIAS_CLASE, Registro, Asignado,
   fechaHoy, formatoFecha, inicioSemana, fechaEnTexto, siguienteDiaClase, sortearAseo, crearExcel,
@@ -12,6 +13,8 @@ import {
 
 const TOPIC_REGISTRO = 'sena/asistencia/registro';
 const TOPIC_CONTROL = 'sena/asistencia/control';
+const TOPIC_LED = 'sena/asistencia/led';
+const TOPIC_LED_ESTADO = 'sena/asistencia/led/estado';
 
 interface Aprendiz {
   nombre: string;
@@ -24,6 +27,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   clienteMqtt: mqtt.MqttClient;
   chatInstructor = Number(process.env.TELEGRAM_CHAT_INSTRUCTOR);
   chatGrupo = Number(process.env.TELEGRAM_GRUPO);
+  leds = { verde: false, rojo: false };
 
   onModuleInit() {
     this.bot = new TelegramBot(process.env.TELEGRAM_TOKEN || '', { polling: true });
@@ -38,7 +42,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     this.bot.onText(/^\/start/, (mensaje) => this.iniciar(mensaje.chat.id));
     this.bot.onText(/^\/ayuda/, (mensaje) => this.ayuda(mensaje.chat.id));
-    this.bot.on('callback_query', (boton) => this.elegirNombre(boton));
+    this.bot.on('callback_query', (boton) => {
+      if (boton.data && boton.data.startsWith('excusa:')) {
+        this.botonExcusa(boton);
+      } else {
+        this.elegirNombre(boton);
+      }
+    });
     this.bot.onText(/^\/cerrar/, (mensaje) => this.comandoCerrar(mensaje.chat.id));
     this.bot.onText(/^\/fallas/, (mensaje) => this.comandoFallas(mensaje.chat.id));
     this.bot.onText(/^\/aseo/, (mensaje) => this.comandoAseo(mensaje.chat.id));
@@ -81,7 +91,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     this.clienteMqtt.on('connect', () => {
       console.log('Bot conectado al broker MQTT');
-      this.clienteMqtt.subscribe([TOPIC_REGISTRO, TOPIC_CONTROL]);
+      this.clienteMqtt.subscribe([TOPIC_REGISTRO, TOPIC_CONTROL, TOPIC_LED_ESTADO]);
     });
 
     this.clienteMqtt.on('message', (topic, datos) => {
@@ -96,6 +106,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       // si cierran desde el tactil tambien se cierra aca
       if (topic === TOPIC_CONTROL && mensaje === 'CERRAR') {
         this.cerrarAsistencia();
+      }
+      if (topic == TOPIC_LED_ESTADO) {
+        try {
+          this.leds = JSON.parse(mensaje);
+        } catch (error) {
+          console.log(`Estado de led invalido: ${mensaje}`);
+        }
       }
     });
   }
@@ -143,6 +160,22 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   async cerrarAsistencia() {
+    const seCerro = await this.enviarTelegrams();
+    await this.hacerSorteo();
+    return seCerro;
+  }
+
+  resumenDia(dia: any) {
+    const registros: Registro[] = dia.registros;
+    const aTiempo = registros.filter((r) => r.estado == 'A_TIEMPO').map((r) => r.nombre);
+    const tardes = registros.filter((r) => r.estado == 'TARDE').map((r) => r.nombre);
+    const llegaron = aTiempo.concat(tardes);
+    const ausentes = leerNombres().filter((nombre) => !llegaron.includes(nombre));
+    return { aTiempo, tardes, ausentes };
+  }
+
+  // mensajes a los ausentes y al instructor, devuelve false si ya se habian enviado
+  async enviarTelegrams() {
     const hoy = fechaHoy();
     const asistencia = leerJson('asistencia.json', {});
     const dia = this.leerDia(asistencia, hoy);
@@ -150,18 +183,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
 
-    const llegaron = dia.registros.map((r: Registro) => r.nombre);
-    const ausentes = leerNombres().filter((nombre) => !llegaron.includes(nombre));
+    const { aTiempo, tardes, ausentes } = this.resumenDia(dia);
     for (const nombre of ausentes) {
       dia.registros.push({ nombre, hora: '', estado: 'AUSENTE' });
     }
     dia.cerrada = true;
     guardarJson('asistencia.json', asistencia);
     this.clienteMqtt.publish(TOPIC_CONTROL, 'CERRAR', { qos: 1 });
-
-    const registros: Registro[] = dia.registros;
-    const aTiempo = registros.filter((r) => r.estado === 'A_TIEMPO').map((r) => r.nombre);
-    const tardes = registros.filter((r) => r.estado === 'TARDE').map((r) => r.nombre);
 
     // mensaje a los ausentes
     const aprendices: Aprendiz[] = leerJson('aprendices.json', []);
@@ -182,43 +210,98 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     if (this.chatInstructor) {
       await this.enviar(
         this.chatInstructor,
-        `Resumen de asistencia ${hoy}\n\n` +
-          `A tiempo (${aTiempo.length}): ${this.listar(aTiempo)}\n` +
-          `Tarde (${tardes.length}): ${this.listar(tardes)}\n` +
+        `Resumen de asistencia ${hoy}
+
+` +
+          `A tiempo (${aTiempo.length}): ${this.listar(aTiempo)}
+` +
+          `Tarde (${tardes.length}): ${this.listar(tardes)}
+` +
           `Ausentes (${ausentes.length}): ${this.listar(ausentes)}`,
       );
-      await this.enviarExcel(this.chatInstructor, hoy, registros);
-    }
-
-    // sorteo del aseo
-    const diaAseo = siguienteDiaClase();
-    const asignados = sortearAseo(tardes, ausentes);
-    if (asignados.length > 0) {
-      const aseo = leerJson('aseo.json', []);
-      aseo.push({ fecha: formatoFecha(diaAseo), asignados });
-      guardarJson('aseo.json', aseo);
-    }
-    if (this.chatGrupo) {
-      let texto = `Aseo para el ${fechaEnTexto(diaAseo)}:\n`;
-      if (asignados.length === 0) {
-        texto += 'Todos llegaron a tiempo, hoy no hay sorteo.';
-      }
-      for (const asignado of asignados) {
-        texto += `- ${asignado.nombre} -> ${asignado.tarea}\n`;
-      }
-      await this.enviar(this.chatGrupo, texto);
+      await this.enviarExcel(this.chatInstructor, hoy, dia.registros);
     }
 
     await this.revisarAlertas(asistencia, ausentes, tardes);
-
     console.log(`Asistencia del ${hoy} cerrada`);
     return true;
+  }
+
+  // solo se hace un sorteo por dia
+  async hacerSorteo() {
+    const hoy = fechaHoy();
+    const aseo = leerJson('aseo.json', []);
+    const yaSorteado = aseo.find((a) => a.sorteadoEl == hoy);
+    if (yaSorteado) {
+      return yaSorteado;
+    }
+
+    const asistencia = leerJson('asistencia.json', {});
+    const { tardes, ausentes } = this.resumenDia(this.leerDia(asistencia, hoy));
+    const diaAseo = siguienteDiaClase();
+    const sorteo = { fecha: formatoFecha(diaAseo), sorteadoEl: hoy, asignados: sortearAseo(tardes, ausentes) };
+    aseo.push(sorteo);
+    guardarJson('aseo.json', aseo);
+
+    if (this.chatGrupo) {
+      let texto = `Aseo para el ${fechaEnTexto(diaAseo)}:
+`;
+      if (sorteo.asignados.length == 0) {
+        texto += 'Todos llegaron a tiempo, hoy no hay sorteo.';
+      }
+      for (const asignado of sorteo.asignados) {
+        texto += `- ${asignado.nombre} -> ${asignado.tarea}
+`;
+      }
+      await this.enviar(this.chatGrupo, texto);
+    }
+    return sorteo;
+  }
+
+  // los que llegaron mas los que faltan, aunque no se haya cerrado
+  registrosParaExcel(dia: any) {
+    const llegaron = dia.registros.filter((r: Registro) => r.estado != 'AUSENTE');
+    const { ausentes } = this.resumenDia(dia);
+    for (const nombre of ausentes) {
+      llegaron.push({ nombre, hora: '', estado: 'AUSENTE' });
+    }
+    return llegaron;
+  }
+
+  async crearExcelDeHoy() {
+    const asistencia = leerJson('asistencia.json', {});
+    const dia = this.leerDia(asistencia, fechaHoy());
+    return crearExcel(fechaHoy(), this.registrosParaExcel(dia));
+  }
+
+  estadoDeHoy() {
+    const hoy = fechaHoy();
+    const asistencia = leerJson('asistencia.json', {});
+    const dia = this.leerDia(asistencia, hoy);
+    const { aTiempo, tardes, ausentes } = this.resumenDia(dia);
+    const aseo = leerJson('aseo.json', []);
+    return {
+      fecha: hoy,
+      cerrada: dia.cerrada,
+      llegadas: dia.registros.filter((r: Registro) => r.estado != 'AUSENTE'),
+      aTiempo: aTiempo.length,
+      tardes: tardes.length,
+      ausentes,
+      leds: this.leds,
+      sorteo: aseo.find((a) => a.sorteadoEl == hoy) || null,
+      excusas: leerJson('excusas.json', []).filter((e) => e.estado == 'PENDIENTE'),
+    };
+  }
+
+  cambiarLed(color: string, encender: boolean) {
+    const accion = encender ? 'ENCENDER' : 'APAGAR';
+    this.clienteMqtt.publish(TOPIC_LED, `${accion}_${color.toUpperCase()}`);
   }
 
   async recordarAseo() {
     const aseo = leerJson('aseo.json', []);
     const hoy = aseo.find((dia) => dia.fecha === fechaHoy());
-    if (!hoy || !this.chatGrupo) {
+    if (!hoy || !this.chatGrupo || hoy.asignados.length == 0) {
       return;
     }
     let nombres = '';
@@ -274,7 +357,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  recibirExcusa(chatId: number, texto: string) {
+  async recibirExcusa(chatId: number, texto: string) {
     const excusas = leerJson('excusas.json', []);
     const excusa = excusas.find((e) => e.chatId === chatId && e.estado === 'SIN_RESPUESTA');
     if (!excusa) {
@@ -282,15 +365,95 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // queda PENDIENTE, despues la clasificamos con gemini
+    if (!excusa.id) {
+      excusa.id = Date.now();
+    }
     excusa.texto = texto;
     excusa.estado = 'PENDIENTE';
     guardarJson('excusas.json', excusas);
-
     this.enviar(chatId, 'Gracias, tu excusa fue enviada al instructor.');
+
+    // gemini hace el resumen y sugiere, pero el que decide es el instructor
+    const analisis = await analizarExcusa(excusa.nombre, texto);
+
+    // se vuelve a leer por si llego otra excusa mientras gemini respondia
+    const excusasActuales = leerJson('excusas.json', []);
+    const actual = excusasActuales.find((e) => e.id == excusa.id);
+    actual.resumen = analisis.resumen;
+    actual.sugerencia = analisis.sugerencia;
+    actual.razon = analisis.razon;
+
     if (this.chatInstructor) {
-      this.enviar(this.chatInstructor, `Excusa de ${excusa.nombre} (${excusa.fecha}): ${texto}`);
+      try {
+        const mensaje = await this.bot.sendMessage(this.chatInstructor, this.textoExcusa(actual), {
+          reply_markup: {
+            inline_keyboard: [[
+              { text: 'Aceptar', callback_data: `excusa:ACEPTADA:${actual.id}` },
+              { text: 'Rechazar', callback_data: `excusa:RECHAZADA:${actual.id}` },
+            ]],
+          },
+        });
+        actual.mensajeId = mensaje.message_id;
+      } catch (error) {
+        console.log(`No se pudo enviar la excusa al instructor: ${error.message}`);
+      }
     }
+    guardarJson('excusas.json', excusasActuales);
+  }
+
+  textoExcusa(excusa: any) {
+    return (
+      `Excusa de ${excusa.nombre} (${excusa.fecha})
+
+` +
+      `"${excusa.texto}"
+
+` +
+      `Resumen IA: ${excusa.resumen}
+` +
+      `Sugerencia IA: ${excusa.sugerencia}` + (excusa.razon ? ` - ${excusa.razon}` : '')
+    );
+  }
+
+  async botonExcusa(boton: TelegramBot.CallbackQuery) {
+    const partes = (boton.data || '').split(':');
+    let respuesta = 'Solo el instructor puede decidir';
+    if (this.esInstructor(boton.from.id)) {
+      respuesta = await this.decidirExcusa(Number(partes[2]), partes[1]);
+    }
+    this.bot.answerCallbackQuery(boton.id, { text: respuesta });
+  }
+
+  // se usa desde telegram y desde la pagina
+  async decidirExcusa(id: number, decision: string) {
+    const excusas = leerJson('excusas.json', []);
+    const excusa = excusas.find((e) => e.id == id);
+    if (!excusa || excusa.estado != 'PENDIENTE') {
+      return 'Esa excusa ya fue revisada';
+    }
+    excusa.estado = decision;
+    guardarJson('excusas.json', excusas);
+
+    let palabra = 'rechazada';
+    if (decision == 'ACEPTADA') {
+      palabra = 'aceptada';
+    }
+    await this.enviar(excusa.chatId, `Hola ${excusa.nombre}, tu excusa del ${excusa.fecha} fue ${palabra} por el instructor.`);
+
+    // se quitan los botones del mensaje del instructor
+    if (excusa.mensajeId) {
+      try {
+        await this.bot.editMessageText(`${this.textoExcusa(excusa)}
+
+Decision: ${decision}`, {
+          chat_id: this.chatInstructor,
+          message_id: excusa.mensajeId,
+        });
+      } catch (error) {
+        console.log(`No se pudo editar el mensaje: ${error.message}`);
+      }
+    }
+    return `Excusa de ${excusa.nombre} ${palabra}`;
   }
 
   listar(nombres: string[]) {
@@ -393,7 +556,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       this.enviar(chatId, 'Hoy no hay registros todavia.');
       return;
     }
-    await this.enviarExcel(chatId, fechaHoy(), dia.registros);
+    await this.enviarExcel(chatId, fechaHoy(), this.registrosParaExcel(dia));
   }
 
   async comandoCerrar(chatId: number) {
