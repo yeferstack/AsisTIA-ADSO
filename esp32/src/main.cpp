@@ -15,6 +15,8 @@
 #define PIN_TACTIL 4
 #define PIN_SERVO 18
 #define PIN_RELE 13
+#define PIN_LED_VERDE 26
+#define PIN_LED_ROJO 27
 
 #define SERVO_CERRADO 0
 #define SERVO_ABIERTO 90
@@ -24,6 +26,8 @@ const char* TOPIC_PRESENCIA = "sena/asistencia/presencia";
 const char* TOPIC_REGISTRO = "sena/asistencia/registro";
 const char* TOPIC_CONTEO = "sena/asistencia/conteo";
 const char* TOPIC_CONTROL = "sena/asistencia/control";
+const char* TOPIC_LED = "sena/asistencia/led";
+const char* TOPIC_LED_ESTADO = "sena/asistencia/led/estado";
 
 WiFiClientSecure clienteWifi;
 PubSubClient clienteMqtt(clienteWifi);
@@ -36,6 +40,8 @@ bool personaCerca = false;
 int pirAnterior = LOW;
 int tactilAnterior = LOW;
 unsigned long ultimaMedicion = 0;
+bool ledVerde = false;
+bool ledRojo = false;
 
 void mostrar(String linea1, String linea2) {
   lcd.clear();
@@ -85,6 +91,21 @@ void sincronizarHora() {
   Serial.println(&hora, "\nHora: %d/%m/%Y %H:%M:%S");
 }
 
+// le avisa a la pagina como estan los led
+void publicarLeds() {
+  String estado = "{\"verde\":" + String(ledVerde ? "true" : "false") +
+                  ",\"rojo\":" + String(ledRojo ? "true" : "false") + "}";
+  clienteMqtt.publish(TOPIC_LED_ESTADO, estado.c_str(), true);
+}
+
+void cambiarLeds(bool verde, bool rojo) {
+  ledVerde = verde;
+  ledRojo = rojo;
+  digitalWrite(PIN_LED_VERDE, ledVerde ? HIGH : LOW);
+  digitalWrite(PIN_LED_ROJO, ledRojo ? HIGH : LOW);
+  publicarLeds();
+}
+
 void abrirTalanquera(String nombre, String estado) {
   digitalWrite(PIN_RELE, HIGH);
   talanquera.write(SERVO_ABIERTO);
@@ -116,6 +137,15 @@ void alRecibirMensaje(char* topic, byte* datos, unsigned int largo) {
     return;
   }
 
+  // la pagina prende y apaga los led a mano
+  if (tema == TOPIC_LED) {
+    if (mensaje == "ENCENDER_VERDE") cambiarLeds(true, ledRojo);
+    if (mensaje == "APAGAR_VERDE") cambiarLeds(false, ledRojo);
+    if (mensaje == "ENCENDER_ROJO") cambiarLeds(ledVerde, true);
+    if (mensaje == "APAGAR_ROJO") cambiarLeds(ledVerde, false);
+    return;
+  }
+
   if (tema == TOPIC_REGISTRO) {
     if (!asistenciaAbierta) {
       return;
@@ -129,14 +159,18 @@ void alRecibirMensaje(char* topic, byte* datos, unsigned int largo) {
     String estado = registro["estado"].as<String>();
 
     if (estado == "A_TIEMPO") {
+      cambiarLeds(true, false);
       abrirTalanquera(nombre, "A TIEMPO");
     } else if (estado == "TARDE") {
+      cambiarLeds(false, true);
       abrirTalanquera(nombre, "TARDE");
     } else {
+      cambiarLeds(false, true);
       mostrar("NO REGISTRADO", "Acceso negado");
       delay(2000);
       mostrarEspera();
     }
+    cambiarLeds(false, false);
   }
 }
 
@@ -148,6 +182,8 @@ void conectarMqtt() {
       Serial.println("Conectado a MQTT");
       clienteMqtt.subscribe(TOPIC_REGISTRO);
       clienteMqtt.subscribe(TOPIC_CONTROL);
+      clienteMqtt.subscribe(TOPIC_LED);
+      publicarLeds();
       mostrarEspera();
     } else {
       Serial.print("Fallo MQTT, codigo: ");
@@ -223,6 +259,8 @@ void setup() {
   pinMode(PIN_TACTIL, INPUT_PULLDOWN);
   pinMode(PIN_RELE, OUTPUT);
   digitalWrite(PIN_RELE, LOW);
+  pinMode(PIN_LED_VERDE, OUTPUT);
+  pinMode(PIN_LED_ROJO, OUTPUT);
 
   talanquera.setPeriodHertz(50);
   talanquera.attach(PIN_SERVO, 500, 2400);
