@@ -97,19 +97,40 @@ Se abre la carpeta `esp32` con PlatformIO en VS Code. Hay que crear `esp32/inclu
 #define MQTT_CLAVE "clave"
 ```
 
-Pines:
+### Conexiones de la maqueta
 
-| Componente | Pin |
+Resumen de pines: G4 tactil, G12 Trig, G13 rele, G14 Echo, G18 servo, G19 PIR, G21 SDA, G22 SCL, G26 LED verde, G27 LED rojo.
+
+**Lineas de la protoboard**
+- V5 del ESP32 a la linea de 5V (arriba)
+- 3V3 del ESP32 a la linea de 3V3 (abajo)
+- GND del ESP32 a la linea GND de arriba y a la de abajo (unidas con un cable)
+
+| Componente | Conexion |
 |---|---|
-| Sensor PIR | 19 |
-| Ultrasonico TRIG | 12 |
-| Ultrasonico ECHO | 14 |
-| Sensor tactil | 4 |
-| Servo (talanquera) | 18 |
-| Rele | 13 |
-| LED verde (con resistencia de 220) | 26 |
-| LED rojo (con resistencia de 220) | 27 |
-| LCD I2C | SDA 21, SCL 22 (direccion 0x27) |
+| PIR | VCC a 5V, OUT a G19, GND a GND |
+| Servo SG90 (talanquera) | Naranja a 5V, cafe a GND, amarillo a G18 |
+| Rele | + a 5V, - a GND, S a G13. Tornillo COM a 5V y tornillo NO al LED de la luz |
+| LED de la luz (del rele) | NO del rele, resistencia de 220, pata larga del LED, pata corta a GND |
+| LCD 16x2 I2C | VCC a 5V, GND a GND, SDA a G21, SCL a G22 (direccion 0x27) |
+| Ultrasonico HC-SR04 | VCC a 3V3, GND a GND, Trig a G12, Echo a G14 |
+| Sensor tactil TTP223 | VCC a 3V3, GND a GND, I/O a G4 |
+| LED verde | G26, resistencia de 220, pata larga del LED, pata corta a GND |
+| LED rojo | G27, resistencia de 220, pata larga del LED, pata corta a GND |
+| Camara | Es la del portatil, no va al ESP32 |
+
+```
+  ESP32
+  G26 ----[220]----|>|---- GND     LED verde (a tiempo)
+  G27 ----[220]----|>|---- GND     LED rojo (tarde o no registrado)
+                 pata   pata
+                 larga  corta
+```
+
+**Si algo falla**
+- Si el ultrasonico no cuenta bien puede ser por la alimentacion de 3V3, el HC-SR04 normal funciona mejor a 5V pero el Echo necesita un divisor de voltaje para no danar el ESP32 (el HC-SR04P si funciona a 3V3).
+- Si el ESP32 se reinicia cuando se mueve el servo, alimentar el servo con una fuente de 5V aparte uniendo los GND.
+- Si un LED no prende probablemente esta al reves, la pata larga va hacia la resistencia.
 
 ## Servidor y bot de Telegram
 
